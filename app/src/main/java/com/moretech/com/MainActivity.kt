@@ -1,6 +1,7 @@
 package com.moretech.com
 
 import android.content.Context
+import android.content.SharedPreferences
 import android.content.res.Resources
 import android.os.Bundle
 import android.view.animation.OvershootInterpolator
@@ -42,9 +43,67 @@ import com.android.volley.Response
 import com.android.volley.toolbox.StringRequest
 import com.android.volley.toolbox.Volley
 import kotlinx.coroutines.delay
+import androidx.appcompat.app.AppCompatActivity
+import android.util.Base64
+import android.util.Log
+import android.widget.Toast
+import com.android.volley.AuthFailureError
+import com.android.volley.RequestQueue
+import com.android.volley.toolbox.JsonObjectRequest
+import com.google.gson.Gson
+import kotlinx.serialization.Serializable
+import org.json.JSONObject
 
-// TODO
-// data class User(val a: Int, @Optional val b: String = "42")
+@Serializable
+data class Profile(val balance: Float, val current_difficult: Int)
+
+@Serializable
+data class User(val username: String, val password: String, val is_staff: Boolean, val profile: Profile)
+
+class VolleySingleton constructor(context: Context) {
+    companion object {
+        @Volatile
+        private var INSTANCE: VolleySingleton? = null
+        fun getInstance(context: Context) =
+            INSTANCE ?: synchronized(this) {
+                INSTANCE ?: VolleySingleton(context).also {
+                    INSTANCE = it
+                }
+            }
+    }
+    private val requestQueue: RequestQueue by lazy {
+        // applicationContext is key, it keeps you from leaking the
+        // Activity or BroadcastReceiver if someone passes one in.
+        Volley.newRequestQueue(context.applicationContext)
+    }
+    fun <T> addToRequestQueue(req: Request<T>) {
+        requestQueue.add(req)
+    }
+}
+
+class CustomJsonObjectRequestBasicAuth(
+    method: Int,
+    url: String,
+    jsonObject: JSONObject?,
+    listener: Response.Listener<JSONObject>,
+    errorListener: Response.ErrorListener,
+    credentials: String
+) :
+    JsonObjectRequest(method, url, jsonObject, listener, errorListener) {
+
+    private var mCredentials: String = credentials
+
+    @Throws(AuthFailureError::class)
+    override fun getHeaders(): Map<String, String> {
+        val headers = HashMap<String, String>()
+        headers["Content-Type"] = "application/json"
+        val credentials: String = "username:password"
+        val auth = "Basic " + Base64.encodeToString(mCredentials.toByteArray(), Base64.NO_WRAP)
+        headers["Authorization"] = auth
+        return headers
+    }
+}
+
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -57,7 +116,18 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
+    companion object {
+        val PREFS_NAME = "APP_PREFS"
+    }
 }
+
+@Composable
+fun MainScreen() {
+    Text("Hello!")
+}
+
+
 
 @Composable
 fun Navigation(resources: Resources, context: Context) {
@@ -70,8 +140,16 @@ fun Navigation(resources: Resources, context: Context) {
             SplashScreen(navController = navController)
         }
 
-        composable("main_screen") {
+        composable("sign_up") {
             SignUp(navController = navController, resources = resources, context = context)
+        }
+
+        composable("sign_in") {
+            SignIn(navController = navController, resources = resources, context = context)
+        }
+
+        composable("main_screen") {
+            MainScreen()
         }
     }
 }
@@ -80,7 +158,7 @@ fun Navigation(resources: Resources, context: Context) {
 fun SplashScreen(navController: NavController) {
     LaunchedEffect(key1 = true) {
         delay(3000L)
-        navController.navigate("main_screen")
+        navController.navigate("sign_up")
     }
 
     Box(contentAlignment = Alignment.Center,
@@ -92,6 +170,95 @@ fun SplashScreen(navController: NavController) {
     }
 }
 
+
+@Composable
+fun SignIn(navController: NavController, resources: Resources, context: Context) {
+    Box(modifier = Modifier.fillMaxSize().background(color = getColor("#F5F9FF"))) {
+        Image(
+            painter = painterResource(id = R.drawable.spaces_gray_background),
+            contentDescription = "Background Spaces",
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxSize()
+        )
+
+        Row(modifier = Modifier.padding(25.dp, 35.dp)) {
+            Button(
+                modifier = Modifier.padding(5.dp),
+                colors = ButtonDefaults.buttonColors(backgroundColor = Color.Transparent),
+                onClick = { navController.popBackStack() },
+                elevation = null
+            ){
+                Image(
+                    painter = painterResource(id = R.drawable.arrow_back),
+                    contentDescription = "Back arrow",
+                    modifier = Modifier.height(24.dp).width(24.dp),
+                    alignment = Alignment.TopStart
+                )
+            }
+        }
+
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(
+                modifier = Modifier
+                    .wrapContentSize()
+                    .fillMaxWidth(0.7f),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Image(
+                    painter = painterResource(id = R.drawable.egorka),
+                    contentDescription = "Egorka"
+                )
+                Text(
+                    text = "Егорка",
+                    fontFamily = FontFamily(Font(R.font.geometria_bold)),
+                    fontSize = 14.sp
+                )
+                Spacer(modifier = Modifier.height(10.dp))
+                Text(
+                    text = "Привет! \n" + "Рад тебя снова видеть",
+                    textAlign = TextAlign.Center,
+                    fontFamily = FontFamily(Font(R.font.geometria)),
+                    fontSize = 18.sp
+                )
+
+                var nickname by remember { mutableStateOf("Никнейм") }
+                var password by remember { mutableStateOf("Пароль") }
+
+                Spacer(modifier = Modifier.height(24.dp))
+                CardTextInput(nickname, KeyboardType.Email) { nickname = it }
+
+                Spacer(modifier = Modifier.height(24.dp))
+                CardTextInput(password, KeyboardType.Password) { password = it }
+
+                Spacer(modifier = Modifier.height(36.dp))
+                AuthButton(text = "Войти") {
+                    login(nickname, password, context, navController)
+                }
+
+                Spacer(modifier = Modifier.height(20.dp))
+                Button(
+                    colors = ButtonDefaults.buttonColors(backgroundColor = Color.Transparent),
+                    elevation = null,
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(40.dp),
+                    onClick = {}
+                ) {
+                    Text(
+                        text = "Войти как гость",
+                        fontFamily = FontFamily(Font(R.font.geometria)),
+                        fontSize = 18.sp,
+                        color = getColor("#757575")
+                    )
+                }
+            }
+        }
+    }
+}
 
 @Composable
 fun SignUp(navController: NavController, resources: Resources, context: Context) {
@@ -124,54 +291,52 @@ fun SignUp(navController: NavController, resources: Resources, context: Context)
             )
             Spacer(modifier = Modifier.height(10.dp))
             Text(
-                text = "Привет! \n" +
-                        "Я покажу на примерах, что инвестиции это просто",
+                text = "Привет! \n" + "Я покажу на примерах, что инвестиции это просто",
                 textAlign = TextAlign.Center,
                 fontFamily = FontFamily(Font(R.font.geometria)),
                 fontSize = 18.sp
             )
 
-            var nickname by remember{ mutableStateOf("Никнейм") }
-            var age by remember{ mutableStateOf("Возраст") }
-            var email by remember{ mutableStateOf("Почта") }
-            var password by remember{ mutableStateOf("Пароль") }
+            var nickname by remember { mutableStateOf("Никнейм") }
+            var age by remember { mutableStateOf("Возраст") }
+            var email by remember { mutableStateOf("Почта") }
+            var password by remember { mutableStateOf("Пароль") }
 
             Spacer(modifier = Modifier.height(24.dp))
-            CardTextInput(nickname) { nickname = it }
+            CardTextInput(nickname, KeyboardType.Text) { nickname = it }
 
             Spacer(modifier = Modifier.height(24.dp))
-            CardTextInput(age) { age = it }
+            CardTextInput(age, KeyboardType.Number) { age = it }
 
             Spacer(modifier = Modifier.height(24.dp))
-            CardTextInput(email) { email = it }
+            CardTextInput(email, KeyboardType.Email) { email = it }
 
             Spacer(modifier = Modifier.height(24.dp))
-            CardTextInput(password) { password = it }
+            CardTextInput(password, KeyboardType.Password) { password = it }
 
             Spacer(modifier = Modifier.height(36.dp))
             AuthButton(text = "Зарегистрироваться") {
-                val queue = Volley.newRequestQueue(context)
-                //val url = resources.getString(R.string.server_ip);
+                val profile = Profile(100000.0f, 1)
+                val user = User(nickname, password, false, profile)
 
-                /*
-                // Request a string response from the provided URL.
-                val stringRequest = StringRequest(Request.Method.GET, url, { response ->
-                    val obj = JSON.parse(MyModel.serializer(), response)
-                    println(obj) // MyModel(a=42, b="42")
+                val gson = Gson()
+                val json = JSONObject(gson.toJson(user))
 
-                },
-                    {
-                        textView.text = "That didn't work!"
-                    })
+                sendRequest(Request.Method.POST, context, "api/register/", json) {
+                    val sharedPreferences = context.getSharedPreferences(MainActivity.PREFS_NAME, Context.MODE_PRIVATE)
+                    val editor = sharedPreferences.edit()
 
-                // Add the request to the RequestQueue.
-                queue.add(stringRequest)
-                */
+                    editor.putString("username", nickname)
+                    editor.putString("password", password)
+                    editor.apply()
+
+                    navController.navigate("main_screen")
+                }
             }
 
             Spacer(modifier = Modifier.height(20.dp))
-            AuthButton(text = "Войти >") {
-
+            AuthButton(text = "Войти") {
+                navController.navigate("sign_in")
             }
 
             Spacer(modifier = Modifier.height(20.dp))
@@ -195,6 +360,69 @@ fun SignUp(navController: NavController, resources: Resources, context: Context)
     }
 }
 
+fun login(nickname: String, password: String, context: Context, navController: NavController) {
+    val profile = Profile(100000.0f, 1)
+    val user = User(nickname, password, false, profile)
+
+    val gson = Gson()
+    val json = JSONObject(gson.toJson(user))
+
+    sendRequest(Request.Method.GET, context, "api/me/", json) {
+        val sharedPreferences = context.getSharedPreferences(MainActivity.PREFS_NAME, Context.MODE_PRIVATE)
+        val editor = sharedPreferences.edit()
+
+        editor.putString("username", nickname)
+        editor.putString("password", password)
+        editor.apply()
+
+        navController.navigate("main_screen")
+    }
+}
+
+fun sendRequest(
+    method: Int, context: Context, path: String, json: JSONObject?, onSuccess: (JSONObject) -> Unit)
+{
+    val url = "http://188.120.253.55:8002/$path"
+
+    val credentials =
+        if (path == "api/register/") {
+            "admin:admin"
+        } else {
+            val username: String?
+            val password: String?
+
+            if (json == null) {
+                val sharedPreferences = context.getSharedPreferences(MainActivity.PREFS_NAME, Context.MODE_PRIVATE)
+
+                username = sharedPreferences.getString("username", null)
+                password = sharedPreferences.getString("password", null)
+            } else {
+                username = json.get("username").toString()
+                password = json.get("password").toString()
+            }
+
+            "$username:$password"
+        }
+
+
+    val request = CustomJsonObjectRequestBasicAuth(method, url, json,
+        { response ->
+            try {
+                onSuccess(response)
+            } catch (e: Exception) {
+                e.printStackTrace()
+                Log.d("OK", "Parse exception: $e")
+            }
+        }, {
+            Log.d("OK", "Volley error: $it")
+            Log.d("OK", "Volley error: ${it.networkResponse.statusCode}")
+            Toast.makeText(context, "Некорректный ввод", Toast.LENGTH_SHORT).show()
+        }, credentials
+    )
+
+    VolleySingleton.getInstance(context).addToRequestQueue(request)
+}
+
 @Composable
 fun AuthButton(text: String, onClick: () -> Unit) {
     Button(
@@ -215,7 +443,7 @@ fun AuthButton(text: String, onClick: () -> Unit) {
 }
 
 @Composable
-fun CardTextInput(nickname: String, onValueChange: (String) -> Unit) {
+fun CardTextInput(hint: String, keyboardType: KeyboardType, onValueChange: (String) -> Unit) {
     Card(
         modifier =
         Modifier
@@ -231,10 +459,10 @@ fun CardTextInput(nickname: String, onValueChange: (String) -> Unit) {
                 .background(color = getColor("#F5F9FF")),
             contentAlignment = Alignment.CenterStart) {
             BasicTextField(
-                value = nickname,
+                value = hint,
                 onValueChange = onValueChange,
                 singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
+                keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
                 modifier = Modifier.padding(15.dp, 1.dp),
                 textStyle = TextStyle(
                     fontSize = 18.sp,
